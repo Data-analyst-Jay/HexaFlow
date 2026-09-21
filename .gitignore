@@ -1,0 +1,11 @@
+.vscode/
+build/
+dist/
+.venv/
+__pycache__/
+*.pyc
+
+# keep folder name but ignore content
+models/*
+!models/.gitkeep
+!models/.gitignore

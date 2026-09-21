@@ -1,0 +1,17 @@
+[project]
+name = "hexaflow"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "pillow>=10.0",
+    "pynput>=1.7.7",
+    "pyautogui>=0.9.54",
+    "pystray>=0.19.5",
+    "uiautomation>=2.0.20",
+    "numpy>=1.26.4",
+    "sounddevice>=0.5.1",
+    "onnxruntime-qnn>=1.18.0",
+    "qai-appbuilder>=2.0.0",
+    "transformers==4.56.2",
+]
