@@ -103,7 +103,12 @@ class HexaFlowPhaseOne:
         self._tray.set_state(TrayState.PROCESSING)
 
         try:
-            self._engine.submit(recording, self.    _dictation_complete)
+            context = self._context or FocusedContext("", "", "")
+            self._engine.submit(
+                recording,
+                context,
+                self._dictation_complete,
+            )
         except Exception:
             LOGGER.exception("Could not queue dictation.")
             self._tray.set_state(TrayState.IDLE)
@@ -121,7 +126,10 @@ class HexaFlowPhaseOne:
                 LOGGER.info("Whisper returned no transcript.    ")
             else:
                 LOGGER.info(
-                    "Injected raw transcript from %.2f  seconds of speech in %.2f seconds.",
+                    "Injected %s text (%d characters) from %.2f seconds of "
+                    "speech in %.2f seconds.",
+                    "formatted" if result.used_slm else "raw fallback",
+                    len(result.text),
                     result.audio_seconds,
                     result.processing_seconds,
                 )

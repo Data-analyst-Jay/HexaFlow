@@ -38,7 +38,7 @@ class WhisperSmallQairt:
         self._model_dir = model_dir or (
             Path(__file__).resolve().parents[2]
             / "models"
-            / "whisper-small-quantized"
+            / "whisper_small_quantized"
         )
         self._encoder_path = self._model_dir / "encoder.bin"
         self._decoder_path = self._model_dir / "decoder.bin"
