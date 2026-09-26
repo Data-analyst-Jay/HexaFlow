@@ -135,40 +135,39 @@ class DictationEngine:
         raw_transcript: str,
         context: FocusedContext,
     ) -> tuple[str, bool]:
-        """Stream each formatted GenieX chunk directly into the focused field."""
+        """Format dictation, validate the response, then insert it once."""
         if not raw_transcript:
             return "", False
 
-        formatted_chunks: list[str] = []
-
         try:
-            for chunk in self._get_slm().stream_format(
-                raw_transcript,
-                context,
-            ):
-                # paste() preserves Unicode and makes each generated chunk visible.
-                self._injector.paste(chunk)
-                formatted_chunks.append(chunk)
+            formatted_text = "".join(
+                self._get_slm().stream_format(raw_transcript, context)
+            ).strip()
 
         except SlmModelError:
-            # A fallback is safe only before any SLM text reaches the document.
-            if formatted_chunks:
-                raise
-
             LOGGER.exception(
-                "SLM failed before streaming text; using raw ASR fallback."
+                "SLM failed; using raw ASR fallback."
             )
             self._injector.paste(raw_transcript)
             return raw_transcript, False
 
-        formatted_text = "".join(formatted_chunks)
+        # Reject an SLM response that is actually an echo of the context JSON.
+        # The real dictation must never contain these internal context-field names.
+        echo_markers = (
+            '"active_window"',
+            '"focused_control"',
+            '"focused_field_tail"',
+            '"raw_dictation"',
+        )
+        if not formatted_text or any(marker in formatted_text for marker in echo_markers):
+            LOGGER.warning(
+                "SLM returned empty text or echoed its context; using raw ASR fallback."
+            )
+            self._injector.paste(raw_transcript)
+            return raw_transcript, False
 
-        if formatted_text:
-            return formatted_text, True
-
-        LOGGER.warning("SLM returned no text; using raw ASR fallback.")
-        self._injector.paste(raw_transcript)
-        return raw_transcript, False
+        self._injector.paste(formatted_text)
+        return formatted_text, True
 
     @staticmethod
     def _report_warm_up_failure(future: Future[None]) -> None:

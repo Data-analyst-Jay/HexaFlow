@@ -10,14 +10,14 @@ from pynput import keyboard
 
 
 class PushToTalkHotkey:
-    """Starts recording while Ctrl and Space are both held."""
+    """Starts recording while Ctrl and Shift are both held."""
 
     _CONTROL_KEYS = {
         keyboard.Key.ctrl,
         keyboard.Key.ctrl_l,
         keyboard.Key.ctrl_r,
     }
-    _SPACE_KEYS = {keyboard.Key.space}
+    _SHIFT_KEYS = {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}
 
     def __init__(
         self,
@@ -94,7 +94,7 @@ class PushToTalkHotkey:
                 self._enabled
                 and not self._recording
                 and not self._awaiting_hotkey_release
-                and {"ctrl", "space"}.issubset(self._held_modifiers)
+                and {"ctrl", "shift"}.issubset(self._held_modifiers)
             ):
                 self._recording = True
                 self._started_at = time.monotonic()
@@ -121,7 +121,7 @@ class PushToTalkHotkey:
 
         with self._lock:
             self._held_modifiers.discard(modifier)
-            hotkey_is_held = {"ctrl", "space"}.issubset(
+            hotkey_is_held = {"ctrl", "shift"}.issubset(
                 self._held_modifiers
             )
 
@@ -145,8 +145,8 @@ class PushToTalkHotkey:
     ) -> str | None:
         if key in self._CONTROL_KEYS:
             return "ctrl"
-        if key in self._SPACE_KEYS:
-            return "space"
+        if key in self._SHIFT_KEYS:
+            return "shift"
         return None
 
     def _report_error(self, error: Exception) -> None:
