@@ -7,9 +7,10 @@ from dataclasses import dataclass
 import logging
 import time
 from typing import Callable
+import threading
 
 from src.ai.asr import WhisperSmallQairt
-from src.ai.slm import Gemma4E4BQairt, SlmModelError
+from src.ai.slm import Qwen3_0_6BQairt, SlmModelError
 from src.audio.recorder import AudioRecording
 from src.os_integration.context import FocusedContext
 from src.os_integration.injector import TextInjector
@@ -43,18 +44,32 @@ class DictationEngine:
     def __init__(self, injector: TextInjector) -> None:
         self._injector = injector
         self._asr: WhisperSmallQairt | None = None
-        self._slm: Gemma4E4BQairt | None = None
+        self._slm: Qwen3_0_6BQairt | None = None
         self._executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="hexaflow-inference",
         )
         self._closed = False
 
+        self._lifecycle_lock = threading.Lock()
+        self._accepting_work = threading.Event()
+        self._accepting_work.set()
+        self._warm_up_future: Future[None] | None = None
+        self._release_thread: threading.Thread | None = None
+
     def warm_up(self) -> Future[None]:
-        """Load Whisper and the separate GenieX QAIRT SLM before dictation."""
-        future = self._executor.submit(self._warm_up_models)
-        future.add_done_callback(self._report_warm_up_failure)
-        return future
+        """Queue exactly one persistent ASR/SLM initialization operation."""
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("The dictation engine has been closed.")
+
+            if self._warm_up_future is None:
+                future = self._executor.submit(self._warm_up_models)
+                future.add_done_callback(self._report_warm_up_failure)
+                self._warm_up_future = future
+
+            return self._warm_up_future
+
 
     def submit(
         self,
@@ -62,27 +77,55 @@ class DictationEngine:
         context: FocusedContext,
         on_complete: CompletionCallback,
     ) -> Future[None]:
-        if self._closed:
-            raise RuntimeError("The dictation engine has been closed.")
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("The dictation engine has been closed.")
 
-        return self._executor.submit(
-            self._transcribe_format_and_inject,
-            recording,
-            context,
-            on_complete,
-        )
+            return self._executor.submit(
+                self._transcribe_format_and_inject,
+                recording,
+                context,
+                on_complete,
+            )
+
 
     def close(self) -> None:
-        self._closed = True
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        """
+        Stop accepting work immediately without blocking the tray UI.
 
-        if self._slm is not None:
-            self._slm.close()
+        A currently executing NPU request is allowed to finish safely; model
+        destruction happens on a daemon cleanup thread after the worker isidle.
+        """
+        with self._lifecycle_lock:
+            if self._closed:
+                return
+
+            self._closed = True
+            self._accepting_work.clear()
+            self._executor.shutdown(wait=False, cancel_futures=True)
+
+            self._release_thread = threading.Thread(
+                target=self._release_after_work,
+                name="hexaflow-inference-cleanup",
+                daemon=True,
+            )
+            self._release_thread.start()
+
+
+    def _release_after_work(self) -> None:
+        """Release QAIRT sessions only after no inference can still use them"""
+        self._executor.shutdown(wait=True)
+
+        with self._lifecycle_lock:
+            slm = self._slm
+            asr = self._asr
             self._slm = None
-
-        if self._asr is not None:
-            self._asr.close()
             self._asr = None
+
+        if slm is not None:
+            slm.close()
+        if asr is not None:
+            asr.close()
 
     def _warm_up_models(self) -> None:
         self._get_asr()
@@ -93,9 +136,9 @@ class DictationEngine:
             self._asr = WhisperSmallQairt()
         return self._asr
 
-    def _get_slm(self) -> Gemma4E4BQairt:
+    def _get_slm(self) -> Qwen3_0_6BQairt:
         if self._slm is None:
-            self._slm = Gemma4E4BQairt()
+            self._slm = Qwen3_0_6BQairt()
         return self._slm
 
     def _transcribe_format_and_inject(
@@ -104,6 +147,10 @@ class DictationEngine:
         context: FocusedContext,
         on_complete: CompletionCallback,
     ) -> None:
+        
+        if not self._accepting_work.is_set():
+            return
+        
         started_at = time.perf_counter()
 
         try:
@@ -148,6 +195,8 @@ class DictationEngine:
             LOGGER.exception(
                 "SLM failed; using raw ASR fallback."
             )
+            if not self._accepting_work.is_set():
+                return "", False
             self._injector.paste(raw_transcript)
             return raw_transcript, False
 
@@ -163,8 +212,13 @@ class DictationEngine:
             LOGGER.warning(
                 "SLM returned empty text or echoed its context; using raw ASR fallback."
             )
+            if not self._accepting_work.is_set():
+                return "", False
             self._injector.paste(raw_transcript)
             return raw_transcript, False
+
+        if not self._accepting_work.is_set():
+            return "", False
 
         self._injector.paste(formatted_text)
         return formatted_text, True

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import logging
 # from pathlib import Path
 # import threading
@@ -12,12 +13,12 @@ from src.os_integration.context import FocusedContext, capture_context
 from src.os_integration.injector import TextInjector
 from src.ui.hotkeys import PushToTalkHotkey
 from src.ui.tray_app import SystemTrayApp, TrayState
+from src.logging_setup import configure_logging, shutdown_logging
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+# )
 LOGGER = logging.getLogger("hexaflow")
 
 # CAPTURE_OUTPUT_PATH = Path(
@@ -42,6 +43,8 @@ class HexaFlowPhaseOne:
             on_recording_finished=self._recording_finished,
             on_error=self._hotkey_error,
         )
+        self._stopping = threading.Event()
+        self._stop_lock = threading.Lock()
 
     def run(self) -> None:
         try:
@@ -50,15 +53,25 @@ class HexaFlowPhaseOne:
             self.stop()
 
     def stop(self) -> None:
+        """Idempotent, non-blocking shutdown initiated from the tray UI."""
+        with self._stop_lock:
+            if self._stopping.is_set():
+                return
+            self._stopping.set()
+
         self._hotkeys.stop()
         self._recorder.close()
         self._engine.close()
 
     def _services_ready(self) -> None:
+        if self._stopping.is_set():
+            return
         self._engine.warm_up()
         self._hotkeys.start()
 
     def _recording_started(self) -> None:
+        if self._stopping.is_set():
+            return
         # Capture context before future processing can change focused control.
         self._context = capture_context()
         self._tray.set_state(TrayState.LISTENING)
@@ -89,6 +102,8 @@ class HexaFlowPhaseOne:
         recording: AudioRecording | None,
         automatic_stop: bool,
     ) -> None:
+        if self._stopping.is_set():
+            return
         self._hotkeys.set_enabled(False)
 
         if automatic_stop:
@@ -119,6 +134,8 @@ class HexaFlowPhaseOne:
         result: DictationResult | None,
         error: Exception | None,
     ) -> None:
+        if self._stopping.is_set():
+            return
         try:
             if error is not None:
                 LOGGER.error("Dictation failed: %s", error)
@@ -143,7 +160,11 @@ class HexaFlowPhaseOne:
 
 
 def main() -> None:
-    HexaFlowPhaseOne().run()
+    configure_logging()
+    try:
+        HexaFlowPhaseOne().run()
+    finally:
+        shutdown_logging()
 
 
 if __name__ == "__main__":

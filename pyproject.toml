@@ -9,10 +9,16 @@ dependencies = [
     "pyautogui>=0.9.54",
     "pystray>=0.19.5",
     "uiautomation>=2.0.20",
-    "numpy>=1.26.4",
+    "numpy==2.4.4",
     "sounddevice>=0.5.1",
     "onnxruntime-qnn>=1.18.0",
-    "qai-appbuilder>=2.0.0",
+    "qai-appbuilder==2.50.40",
     "transformers==4.56.2",
     "geniex-qairt>=0.3.18,<0.4",
+    "geniex>=0.7.0",
+    "qai-hub-models-cli>=0.63.0",
+]
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0,<7",
 ]

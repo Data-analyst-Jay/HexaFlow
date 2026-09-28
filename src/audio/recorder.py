@@ -59,9 +59,18 @@ class AudioRecorder:
         *,
         device: int | str | None = None,
         queue_blocks: int = 250,
+        max_utterance_seconds: float = 30.0,
     ) -> None:
         if queue_blocks < 2:
             raise ValueError("queue_blocks must be at least 2")
+
+        if max_utterance_seconds <= 0:
+            raise ValueError("max_utterance_seconds must be positive")
+
+        self._max_capture_frames = max(
+            1,
+            round(max_utterance_seconds * SAMPLE_RATE / FRAME_SAMPLES),
+        )
 
         try:
             import sounddevice as sd
@@ -158,16 +167,12 @@ class AudioRecorder:
         self._stop_input(session_id)
 
     def close(self) -> None:
-        """Stop capture during application shutdown without saving a WAV."""
+        """Stop capture without blocking the tray UI during application exit."""
         with self._lock:
             self._closed = True
-            worker = self._worker
             session_id = self._session_id
 
         self._stop_input(session_id)
-
-        if worker is not None and worker is not threading.current_thread():
-            worker.join(timeout=2.0)
 
     @staticmethod
     def save_wav(recording: AudioRecording, destination: Path | str) -> Path:
@@ -250,6 +255,14 @@ class AudioRecorder:
                     continue
 
                 frames.append(frame)
+
+                if len(frames) >= self._max_capture_frames:
+                    LOGGER.warning("Maximum utterance length reached; stopping capture.")
+                    automatic_stop = True
+                    final_segment = self._gate.finish()
+                    self._stop_input(session_id)
+                    break
+
                 update = self._gate.process(frame)
 
                 if update.automatic_stop:
@@ -280,6 +293,14 @@ class AudioRecorder:
 
         finally:
             self._finish_session(session_id, recording, automatic_stop)
+            # Drop references to callback-frame copies as soon as the recording is handed off.
+            frames.clear()
+
+            while True:
+                try:
+                    frame_queue.get_nowait()
+                except Empty:
+                    break
 
     def _stop_input(self, session_id: int) -> None:
         """Stop PortAudio safely from either the hotkey or VAD worker thread."""

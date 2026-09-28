@@ -1,4 +1,4 @@
-"""Gemma-4-E4B-it dictation formatting on the Hexagon NPU via GenieX QAIRT."""
+"""Qwen3-0.6B dictation formatting on the Hexagon NPU via GenieX QAIRT."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class SlmModelError(RuntimeError):
     """Raised when the local Gemma QAIRT deployment cannot be used."""
 
 
-class Gemma4E4BQairt:
+class Qwen3_0_6BQairt:
     """
     Persistent GenieX QAIRT session for private dictation formatting.
 
@@ -38,7 +38,7 @@ class Gemma4E4BQairt:
         self._model_dir = model_dir or (
             Path(__file__).resolve().parents[2]
             / "models"
-            / "gemma_4_e4b_it_w4a16"
+            / "qwen3_0_6b_w4a16"
         )
         self._inference_lock = threading.Lock()
         self._closed = False
@@ -62,7 +62,7 @@ class Gemma4E4BQairt:
             )
         except Exception as error:
             raise SlmModelError(
-                "Could not load the local Gemma-4-E4B-it QAIRT bundle."
+                "Could not load the local Qwen3-0.6B QAIRT bundle."
             ) from error
 
     def stream_format(
