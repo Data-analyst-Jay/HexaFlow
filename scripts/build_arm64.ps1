@@ -17,17 +17,13 @@ try {
     }
 
     # Fail before packaging if the required ARM64 runtime imports are missing.
-    & $Python -c @"
-import geniex
-import qai_appbuilder
-import onnxruntime
-import PyInstaller
-print("ARM64 QAIRT/GenieX/PyInstaller preflight passed.")
-"@
+    & $Python -c "import geniex; import qai_appbuilder; import onnxruntime; import PyInstaller"
 
     if ($LASTEXITCODE -ne 0) {
         throw "ARM64 packaging preflight failed."
     }
+
+    Write-Host "ARM64 QAIRT/GenieX/PyInstaller preflight passed."
 
     & $Python -m PyInstaller `
         --noconfirm `
