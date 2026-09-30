@@ -8,6 +8,10 @@ import logging
 # import threading
 from src.ai.engine import DictationEngine, DictationResult
 
+from src.audio.devices import (
+    InputDeviceSelectionError,
+    prompt_for_input_device,
+)
 from src.audio.recorder import AudioRecorder, AudioRecording
 from src.os_integration.context import FocusedContext, capture_context
 from src.os_integration.injector import TextInjector
@@ -29,7 +33,7 @@ LOGGER = logging.getLogger("hexaflow")
 class HexaFlowPhaseOne:
     """Connects the working Phase 1 shell to Phase 2 audio capture."""
 
-    def __init__(self) -> None:
+    def __init__(self, input_device: int) -> None:
         self._context: FocusedContext | None = None
         self._injector = TextInjector()  # Used by the later ASR phase.
         self._engine = DictationEngine(self._injector)
@@ -37,6 +41,7 @@ class HexaFlowPhaseOne:
         self._tray = SystemTrayApp(on_exit=self.stop)
         self._recorder = AudioRecorder(
             on_recording_complete=self._recording_complete,
+            device=input_device,
         )
         self._hotkeys = PushToTalkHotkey(
             on_recording_started=self._recording_started,
@@ -161,8 +166,23 @@ class HexaFlowPhaseOne:
 
 def main() -> None:
     configure_logging()
+
     try:
-        HexaFlowPhaseOne().run()
+        input_device = prompt_for_input_device()
+
+        LOGGER.info(
+            "Selected audio-input device with PortAudio index %d.",
+            input_device,
+        )
+
+        HexaFlowPhaseOne(input_device=input_device).run()
+
+    except InputDeviceSelectionError as error:
+        LOGGER.error("HexaFlow could not start: %s", error)
+
+    except KeyboardInterrupt:
+        LOGGER.info("HexaFlow stopped by user.")
+
     finally:
         shutdown_logging()
 
