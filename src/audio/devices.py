@@ -48,6 +48,17 @@ def list_input_devices() -> list[InputDevice]:
         if max_input_channels <= 0:
             continue
 
+        # Do not show microphones that cannot support HexaFlow's required format.
+        try:
+            sd.check_input_settings(
+                device=index,
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+            )
+        except Exception:
+            continue
+
         hostapi_index = int(device["hostapi"])
         hostapi_name = str(hostapis[hostapi_index]["name"])
 
